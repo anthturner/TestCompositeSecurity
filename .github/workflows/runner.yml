@@ -1,0 +1,13 @@
+---
+name: "Security Scanning Runner"
+
+on:
+  push:
+    branches: [ main ]      
+  workflow_dispatch:
+
+jobs:
+  analyze_security:
+    uses: ./.github/workflows/security_analyze.yml
+    secrets:
+      github_pat: ${{ secrets.DEPLOY_USER_PAT }}

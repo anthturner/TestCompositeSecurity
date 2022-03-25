@@ -1,0 +1,147 @@
+---
+name: "Security Scanning"
+
+on:
+  workflow_call:
+    inputs:
+      languages:
+        description: Explicit languages to run CodeQL inspections for (string or JSON array of strings)
+        required: false
+        type: string
+    secrets:
+      github_pat:
+        description: GitHub access token for private modules (such as in go)
+        required: false
+        
+env:
+  # Double quotes are important both here and in the caller!
+  # CodeQL Languages from https://docs.github.com/en/code-security/code-scanning/using-codeql-code-scanning-with-your-existing-ci-system/configuring-codeql-runner-in-your-ci-system#overriding-automatic-language-detection
+  codeql_languages: >
+    ["python","csharp","go","javascript","cpp","ruby"]
+
+jobs:
+  linguist:
+    name: Linguist
+    runs-on: ubuntu-latest
+    outputs:
+      languages: ${{ steps.runlinguist.outputs.langs }}
+
+    steps:
+
+    - name: Checkout repository
+      uses: actions/checkout@v2
+
+    - name: Run linguist
+      id: runlinguist
+      run:  |
+        echo "Running linguist on $GITHUB_WORKSPACE"
+        LANGS=$(docker run -t --rm -v "$GITHUB_WORKSPACE:/repo" crazymax/linguist:latest --json)
+        LANG_LIST="[$(jq -cn --argjson x "$LANGS" '$x | keys[]' | tr '[:upper:]' '[:lower:]')]"
+        echo "::set-output name=langs::$LANG_LIST"
+        echo "::notice::Detected languages $LANG_LIST"
+
+################################################################################
+## Language Extractor - Sets flags for tooling based on the repo's languages  ##
+################################################################################
+  extract_languages:
+    needs: linguist
+    name: Identify Tooling Languages
+    runs-on: ubuntu-latest
+    env:
+      language_json: ${{ needs.linguist.outputs.languages }}
+
+    outputs:
+      # This is the language set supported by CodeQL specifically, eliminating anything else
+      codeql_languages: ${{ steps.codeql.outputs.codeql_languages }}
+      # If Terraform is in use and should be scanned
+      uses_terraform: ${{ steps.tf.outputs.uses_terraform }}
+
+    steps:
+    - name: Fill in Language Gaps
+      id: normalize
+      run: |
+        LANG_LIST='${{ env.language_json }}'
+        if [[ $(jq -cn --argjson x "$LANG_LIST" '($x | index("typescript") != null)') == "true" ]]; then
+            LANG_LIST=$(jq -cn --argjson x "$LANG_LIST" '($x | .+ ["javascript"])')
+        fi
+        echo "New Language List: $LANG_LIST"
+        echo "::set-output name=langs::$LANG_LIST"
+
+    - name: Extract CodeQL Compatibility
+      id: codeql
+      run: |
+        LANG_LIST='${{ steps.normalize.outputs.langs }}'
+        CQL_INTERSECTION=$(jq -cn --argjson x "$LANG_LIST" '$x as $LANG | ${{ env.codeql_languages }} as $ALLOW | $LANG - ($LANG - $ALLOW)')
+        echo "::set-output name=codeql_languages::$CQL_INTERSECTION"
+        if [[ $CQL_INTERSECTION != "[]" ]]; then
+          echo "::notice::CodeQL will scan the following: $CQL_INTERSECTION"
+        fi
+
+    - name: Check for Terraform
+      id: tf
+      run: |
+        LANG_LIST='${{ steps.normalize.outputs.langs }}'
+        USE_TF=$(jq -cn --argjson x "$LANG_LIST" '$x | index("terraform") != null')
+        echo "::set-output name=uses_terraform::$USE_TF"
+        if [[ $USE_TF != "false" ]]; then
+          echo "::notice::Terraform Scanning will be applied"
+        fi
+
+
+################################################################################
+##        CodeQL Analyzer - Runs CodeQL against a given set of languages      ##
+################################################################################
+  analyze_codeql:
+    name: CodeQL Analysis
+    runs-on: ubuntu-latest
+    needs: extract_languages
+    permissions:
+      actions: read
+      contents: read
+      security-events: write
+    
+    strategy:
+      fail-fast: false
+      matrix:
+        languages: ${{ fromJson(needs.extract_languages.outputs.codeql_languages) }}
+      
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v2
+      
+    - name: Private Go Module Access Grant (Optional)
+      env:
+        GITHUB_PAT: ${{ secrets.GITHUB_PAT }}
+      if: "${{ env.GITHUB_PAT != '' && matrix.languages == 'go' }}"
+      run: |
+        git config --global url."https://${{ secrets.GITHUB_PAT }}@github.com".insteadOf "https://github.com"
+        
+    - name: Initialize CodeQL
+      uses: github/codeql-action/init@v1
+      with:
+        languages: ${{ matrix.languages }}
+
+    - name: Perform CodeQL Analysis
+      uses: github/codeql-action/analyze@v1
+
+
+################################################################################
+##      Terraform Analyzer - Runs a tool yet to be decided (PoC function)     ##
+################################################################################      
+  analyze_tf:
+    name: Terraform Analysis
+    runs-on: ubuntu-latest
+    needs: extract_languages
+    if: needs.extract_languages.outputs.uses_terraform == 'true'
+
+    permissions:
+      actions: read
+      contents: read
+      security-events: write
+
+    steps:
+    - name: To be Determined
+      run: |
+        echo "Hello! This would run Terraform scanning normally."
+        echo "For the moment, this does nothing."
+
