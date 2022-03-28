@@ -37,8 +37,8 @@ jobs:
         echo "Running linguist on $GITHUB_WORKSPACE"
         LANGS=$(docker run -t --rm -v "$GITHUB_WORKSPACE:/repo" crazymax/linguist:latest --json)
         LANG_LIST="[$(jq -cn --argjson x "$LANGS" '$x | keys[]' | tr '[:upper:]' '[:lower:]' | paste -sd, -)]"
-        echo "::set-output name=langs::[$LANG_LIST]"
-        echo "::notice::Detected languages [$LANG_LIST]"
+        echo "::set-output name=langs::$LANG_LIST"
+        echo "::notice::Detected languages $LANG_LIST"
 
 ################################################################################
 ## Language Extractor - Sets flags for tooling based on the repo's languages  ##
