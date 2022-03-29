@@ -8,6 +8,11 @@ on:
         description: Explicit languages to run CodeQL inspections for (string or JSON array of strings)
         required: false
         type: string
+      extended_test:
+        description: If optional tests should be run on this repository
+        required: false
+        default: false
+        type: boolean
     secrets:
       github_pat:
         description: GitHub access token for private modules (such as in go)
@@ -17,12 +22,20 @@ env:
   # Double quotes are important both here and in the caller!
   # CodeQL Languages from https://docs.github.com/en/code-security/code-scanning/using-codeql-code-scanning-with-your-existing-ci-system/configuring-codeql-runner-in-your-ci-system#overriding-automatic-language-detection
   codeql_languages: >
-    ["python","csharp","go","javascript","cpp","ruby"]
+    ["python","csharp","go","javascript","cpp","ruby","java"]
 
 jobs:
+################################################################################
+## GitHub Linguist - Detects supported code/tool languages in the repository  ##
+################################################################################
   linguist:
     name: Linguist
     runs-on: ubuntu-latest
+    env:
+      # This extracts the languages out from one of two string formats: "['python', 'go']"   OR   "python"
+      # In the latter case it creates a single-element array from the given value
+      # This allows for one or many languages being targeted in the matrix
+      override_langs: ${{ startsWith(inputs.languages, '[') && inputs.languages || format('["{0}"]', inputs.languages) }}
     outputs:
       languages: ${{ steps.runlinguist.outputs.langs }}
 
@@ -34,11 +47,17 @@ jobs:
     - name: Run linguist
       id: runlinguist
       run:  |
-        echo "Running linguist on $GITHUB_WORKSPACE"
-        LANGS=$(docker run -t --rm -v "$GITHUB_WORKSPACE:/repo" crazymax/linguist:latest --json)
-        LANG_LIST="[$(jq -cn --argjson x "$LANGS" '$x | keys[]' | tr '[:upper:]' '[:lower:]' | paste -sd, -)]"
-        echo "::set-output name=langs::$LANG_LIST"
-        echo "::notice::Detected languages $LANG_LIST"
+        OVERRIDE_LANGS='${{ env.override_langs }}'
+        if [[ ! -z "$OVERRIDE_LANGS" && "$OVERRIDE_LANGS" != "[]" ]]; then
+          echo "::set-output name=langs::$OVERRIDE_LANGS"
+          echo "::notice::Manually specified languages $OVERRIDE_LANGS"
+        else
+          echo "Running linguist on $GITHUB_WORKSPACE"
+          LANGS=$(docker run -t --rm -v "$GITHUB_WORKSPACE:/repo" crazymax/linguist:latest --json)
+          LANG_LIST="[$(jq -cn --argjson x "$LANGS" '$x | keys[]' | tr '[:upper:]' '[:lower:]' | paste -sd, -)]"
+          echo "::set-output name=langs::$LANG_LIST"
+          echo "::notice::Detected languages $LANG_LIST"
+        fi
 
 ################################################################################
 ## Language Extractor - Sets flags for tooling based on the repo's languages  ##
@@ -53,6 +72,7 @@ jobs:
     outputs:
       # This is the language set supported by CodeQL specifically, eliminating anything else
       codeql_languages: ${{ steps.codeql.outputs.codeql_languages }}
+      uses_codeql: ${{ steps.codeql.outputs.uses_codeql }}
       # If Terraform is in use and should be scanned
       uses_terraform: ${{ steps.tf.outputs.uses_terraform }}
 
@@ -75,6 +95,9 @@ jobs:
         echo "::set-output name=codeql_languages::$CQL_INTERSECTION"
         if [[ $CQL_INTERSECTION != "[]" ]]; then
           echo "::notice::CodeQL will scan the following: $CQL_INTERSECTION"
+          echo "::set-output name=uses_codeql::true"
+        else
+          echo "::set-output name=uses_codeql::false"
         fi
 
     - name: Check for Terraform
@@ -95,6 +118,7 @@ jobs:
     name: CodeQL Analysis
     runs-on: ubuntu-latest
     needs: extract_languages
+    if: needs.extract_languages.outputs.uses_codeql == 'true'
     permissions:
       actions: read
       contents: read
@@ -103,6 +127,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
+        # Static checks fail erroneously on the below line; it _is_ valid since the JSON is an array.
         languages: ${{ fromJson(needs.extract_languages.outputs.codeql_languages) }}
       
     steps:
@@ -120,6 +145,7 @@ jobs:
       uses: github/codeql-action/init@v1
       with:
         languages: ${{ matrix.languages }}
+        queries: ${{ inputs.extended_test && 'security-extended' || '' }}
 
     - name: Perform CodeQL Analysis
       uses: github/codeql-action/analyze@v1
@@ -144,4 +170,3 @@ jobs:
       run: |
         echo "Hello! This would run Terraform scanning normally."
         echo "For the moment, this does nothing."
-
