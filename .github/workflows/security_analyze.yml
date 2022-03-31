@@ -48,7 +48,7 @@ jobs:
       id: runlinguist
       run:  |
         OVERRIDE_LANGS='${{ env.override_langs }}'
-        if [[ ! -z "$OVERRIDE_LANGS" && "$OVERRIDE_LANGS" != "['']" ]]; then
+        if [[ ! -z "$OVERRIDE_LANGS" && "$OVERRIDE_LANGS" != "[\"\"]" ]]; then
           echo "::set-output name=langs::$OVERRIDE_LANGS"
           echo "::notice::Manually specified languages $OVERRIDE_LANGS"
         else
