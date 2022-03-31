@@ -10,7 +10,6 @@ jobs:
   analyze_security:
     uses: ./.github/workflows/security_analyze.yml
     with:
-      languages: "python"
       extended_test: false
     secrets:
       github_pat: ${{ secrets.DEPLOY_USER_PAT }}
