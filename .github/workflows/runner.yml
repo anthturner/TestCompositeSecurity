@@ -1,5 +1,5 @@
 ---
-name: "Security Scanning Runner"
+name: "AppSec"
 
 on:
   push:
