@@ -13,6 +13,11 @@ on:
         required: false
         default: false
         type: boolean
+      build_command:
+        description: If autobuild is not viable, use this command instead
+        required: false
+        type: string
+        default: ''
     secrets:
       github_pat:
         description: GitHub access token for private modules (such as in go)
@@ -146,6 +151,15 @@ jobs:
       with:
         languages: ${{ matrix.languages }}
         queries: ${{ inputs.extended_test && 'security-extended' || '' }}
+
+    - name: Manual build
+      if: inputs.build_command != ''
+      run: |
+        ${{ inputs.build_command }}
+    
+    - if: inputs.build_command == ''
+      name: Autobuild
+      uses: github/codeql-action/autobuild@v2
 
     - name: Perform CodeQL Analysis
       uses: github/codeql-action/analyze@v1
