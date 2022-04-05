@@ -142,6 +142,7 @@ jobs:
     - name: Private Go Module Access Grant (Optional)
       env:
         GITHUB_PAT: ${{ secrets.GITHUB_PAT }}
+      # Note that we use env instead of secrets below, because "if" does not support secrets
       if: "${{ env.GITHUB_PAT != '' && matrix.languages == 'go' }}"
       run: |
         git config --global url."https://${{ secrets.GITHUB_PAT }}@github.com".insteadOf "https://github.com"
