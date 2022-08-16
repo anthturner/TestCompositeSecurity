@@ -52,6 +52,7 @@ jobs:
     - name: Run linguist
       id: runlinguist
       run:  |
+        set -x
         OVERRIDE_LANGS='${{ env.override_langs }}'
         if [[ ! -z "$OVERRIDE_LANGS" && "$OVERRIDE_LANGS" != "[\"\"]" ]]; then
           echo "::set-output name=langs::$OVERRIDE_LANGS"
