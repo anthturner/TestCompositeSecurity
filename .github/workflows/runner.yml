@@ -11,9 +11,9 @@ jobs:
     uses: ./.github/workflows/security_analyze.yml
     with:
       extended_test: false
-      build_command: |
-        echo "Hello world!";
-        echo "This is another command!";
-        echo "::set-output name=build_type::manual"
+      #build_command: |
+      #  echo "Hello world!";
+      #  echo "This is another command!";
+      #  echo "::set-output name=build_type::manual"
     secrets:
       github_pat: ${{ secrets.DEPLOY_USER_PAT }}
