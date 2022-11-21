@@ -13,11 +13,6 @@ on:
         required: false
         default: false
         type: boolean
-      build_command:
-        description: If autobuild is not viable, use this command instead
-        required: false
-        type: string
-        default: ''
     secrets:
       github_pat:
         description: GitHub access token for private modules (such as in go)
@@ -47,21 +42,20 @@ jobs:
     steps:
 
     - name: Checkout repository
-      uses: actions/checkout@v2
+      uses: actions/checkout@v3
 
     - name: Run linguist
       id: runlinguist
       run:  |
-        set -x
         OVERRIDE_LANGS='${{ env.override_langs }}'
         if [[ ! -z "$OVERRIDE_LANGS" && "$OVERRIDE_LANGS" != "[\"\"]" ]]; then
-          echo "::set-output name=langs::$OVERRIDE_LANGS"
+          echo "langs=$OVERRIDE_LANGS" >> $GITHUB_OUTPUT
           echo "::notice::Manually specified languages $OVERRIDE_LANGS"
         else
           echo "Running linguist on $GITHUB_WORKSPACE"
-          LANGS=$(docker run -t --rm -v "$GITHUB_WORKSPACE:/repo" crazymax/linguist:latest --json)
+          LANGS=$(docker run -t --rm -v "$GITHUB_WORKSPACE:/repo" crazymax/linguist --json)
           LANG_LIST="[$(jq -cn --argjson x "$LANGS" '$x | keys[]' | tr '[:upper:]' '[:lower:]' | paste -sd, -)]"
-          echo "::set-output name=langs::$LANG_LIST"
+          echo "langs=$LANG_LIST" >> $GITHUB_OUTPUT
           echo "::notice::Detected languages $LANG_LIST"
         fi
 
@@ -91,19 +85,19 @@ jobs:
             LANG_LIST=$(jq -cn --argjson x "$LANG_LIST" '($x | .+ ["javascript"])')
         fi
         echo "New Language List: $LANG_LIST"
-        echo "::set-output name=langs::$LANG_LIST"
+        echo "langs=$LANG_LIST" >> $GITHUB_OUTPUT
 
     - name: Extract CodeQL Compatibility
       id: codeql
       run: |
         LANG_LIST='${{ steps.normalize.outputs.langs }}'
         CQL_INTERSECTION=$(jq -cn --argjson x "$LANG_LIST" '$x as $LANG | ${{ env.codeql_languages }} as $ALLOW | $LANG - ($LANG - $ALLOW)')
-        echo "::set-output name=codeql_languages::$CQL_INTERSECTION"
+        echo "codeql_languages=$CQL_INTERSECTION" >> $GITHUB_OUTPUT
         if [[ $CQL_INTERSECTION != "[]" ]]; then
           echo "::notice::CodeQL will scan the following: $CQL_INTERSECTION"
-          echo "::set-output name=uses_codeql::true"
+          echo "uses_codeql=true" >> $GITHUB_OUTPUT
         else
-          echo "::set-output name=uses_codeql::false"
+          echo "uses_codeql=false" >> $GITHUB_OUTPUT
         fi
 
     - name: Check for Terraform
@@ -111,7 +105,7 @@ jobs:
       run: |
         LANG_LIST='${{ steps.normalize.outputs.langs }}'
         USE_TF=$(jq -cn --argjson x "$LANG_LIST" '$x | index("terraform") != null')
-        echo "::set-output name=uses_terraform::$USE_TF"
+        echo "uses_terraform=$USE_TF" >> $GITHUB_OUTPUT
         if [[ $USE_TF != "false" ]]; then
           echo "::notice::Terraform Scanning will be applied"
         fi
@@ -138,33 +132,23 @@ jobs:
       
     steps:
     - name: Checkout repository
-      uses: actions/checkout@v2
+      uses: actions/checkout@v3
       
     - name: Private Go Module Access Grant (Optional)
       env:
         GITHUB_PAT: ${{ secrets.GITHUB_PAT }}
-      # Note that we use env instead of secrets below, because "if" does not support secrets
       if: "${{ env.GITHUB_PAT != '' && matrix.languages == 'go' }}"
       run: |
         git config --global url."https://${{ secrets.GITHUB_PAT }}@github.com".insteadOf "https://github.com"
         
     - name: Initialize CodeQL
-      uses: github/codeql-action/init@v1
+      uses: github/codeql-action/init@v2
       with:
         languages: ${{ matrix.languages }}
         queries: ${{ inputs.extended_test && 'security-extended' || '' }}
 
-    - name: Manual build
-      if: inputs.build_command != ''
-      run: |
-        ${{ inputs.build_command }}
-    
-    - if: inputs.build_command == ''
-      name: Autobuild
-      uses: github/codeql-action/autobuild@v2
-
     - name: Perform CodeQL Analysis
-      uses: github/codeql-action/analyze@v1
+      uses: github/codeql-action/analyze@v2
 
 
 ################################################################################
